@@ -101,7 +101,7 @@ kernel_hardening() {
 dev.tty.ldisc_autoload = 0
 fs.protected_fifos = 2
 kernel.kptr_restrict = 2
-kernel.modules_disabled = 1
+#kernel.modules_disabled = 1
 kernel.sysrq = 0
 kernel.unprivileged_bpf_disabled = 1
 kernel.yama.ptrace_scope = 1
