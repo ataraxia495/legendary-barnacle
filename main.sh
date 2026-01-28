@@ -1,19 +1,5 @@
 #!/bin/bash
 
-# Color definitions
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-BLUE='\033[0;34m'
-MAGENTA='\033[0;35m'
-CYAN='\033[0;36m'
-WHITE='\033[1;37m'
-BOLD='\033[1m'
-NC='\033[0m' # No Color
-
-# Log file
-LOG_FILE="/var/log/hardening_script.log"
-
 # Configuration file
 CONF_FILE="configuration.conf"
 
@@ -35,9 +21,9 @@ init_log() {
     touch "$LOG_FILE"
     chmod 600 "$LOG_FILE"
     chown root:root "$LOG_FILE"
-    log_message "=== Hardening Script Started ==="
+    log_message "======= Hardening Script Started ======="
     log_message "Date: $(date)"
-    log_message "User: $(whoami)"
+    log_message "User: ${SUDO_USER}"
     if [[ -f /etc/os-release ]]; then
         . /etc/os-release
         log_message "Distribution: $PRETTY_NAME"
@@ -49,6 +35,16 @@ log_message() {
     local timestamp=$(date '+%d-%m-%Y %H:%M:%S')
     echo "[$timestamp] $message" | tee -a "$LOG_FILE"
 }
+
+# Load configuration
+if [[ -f "$CONF_FILE" ]]; then
+    source "$CONF_FILE"
+    log_message "Taken variables from configuration file"
+else
+    log_message "ERROR: Configuration file not found"
+    echo -e "${RED}${BOLD}ERROR: Configuration file not found at: $CONF_FILE${NC}" >&2
+    exit 1
+fi
 
 # Check root privileges
 check_root() {
@@ -99,8 +95,16 @@ ssh_hardening() {
 
     echo ""
     log_message "Started SSH hardening"
-    cp /etc/ssh/sshd_config /etc/ssh/sshd_config.backup
-    log_message "Created SSH config backup: /etc/ssh/sshd_config.backup"
+
+    if [[ ! -f /etc/ssh/sshd_config.backup ]]; then
+	cp /etc/ssh/sshd_config /etc/ssh/sshd_config.backup
+        log_message "Created SSH config backup: /etc/ssh/sshd_config.backup"
+    else
+	if confirm_action "Overwrite SSH backup" "This will overwrite your existing backup"; then
+	    cp /etc/ssh/sshd_config /etc/ssh/sshd_config.backup
+	    log_message "Overwrited SSH config backup: /etc/ssh/sshd_config.backup"
+	fi
+    fi
 
     sed -i "s/^#\?Port.*/Port ${PORT}/" /etc/ssh/sshd_config
     log_message "Changed SSH port to ${PORT}"
@@ -151,9 +155,17 @@ firewall_hardening() {
         return 1
     fi
 
-    cp /etc/nftables.conf /etc/nftables.conf.backup
-    log_message "Created nftables config backup: /etc/nftables.conf.backup"
     log_message "Started firewall hardening"
+
+    if [[ ! -f /etc/nftables.conf.backup ]]; then
+	cp /etc/nftables.conf /etc/nftables.conf.backup
+        log_message "Created nftables config backup: /etc/nftables.conf.backup"
+    else
+	if confirm_action "Overwrite nftables backup" "This will overwrite your existing backup"; then
+	    cp /etc/nftables.conf /etc/nftables.conf.backup
+	    log_message "Overwritted nftables config backup: /etc/nftables.conf.backup"
+	fi
+    fi
 
     echo -e "${CYAN}Installing nftables...${NC}"
     apt install nftables -y
@@ -233,8 +245,15 @@ grub_hardening() {
         return 1
     fi
 
-    cp /etc/grub.d/40_custom /etc/grub.d/40_custom.backup
-    log_message "Created GRUB config backup: /etc/grub.d/40_custom.backup"
+    if [[ ! -f /etc/grub.d/40_custom.backup ]]; then
+	cp /etc/grub.d/40_custom /etc/grub.d/40_custom.backup
+        log_message "Created GRUB config backup: /etc/grub.d/40_custom.backup"
+    else
+	if confirm_action "Overwrite GRUB backup" "This will overwrite your existing backup"; then
+	    cp /etc/grub.d/40_custom /etc/grub.d/40_custom.backup
+	    log_message "Overwrited GRUB config backup: /etc/grub.d/40_custom.backup"
+	fi
+    fi
 
     if [[ -f /etc/grub.d/40_custom ]] && grep -q "password_pbkdf2" /etc/grub.d/40_custom; then
         if ! confirm_action "GRUB password overwrite warning" "Looks like you already have grub password. If you continue password would be overwritten"; then
@@ -313,6 +332,8 @@ kernel_hardening() {
         return 1
     fi
 
+    log_message "Started kernel hardening"
+
     if [[ ! -f /etc/sysctl.d/99-custom.conf ]]; then
         touch /etc/sysctl.d/99-custom.conf
         log_message "Created /etc/sysctl.d/99-custom.conf"
@@ -320,10 +341,17 @@ kernel_hardening() {
         log_message "Custom config already exists"
     fi
 
-    cp /etc/sysctl.d/99-custom.conf /etc/sysctl.d/99-custom.conf.backup
-    log_message "Created kernel config backup: /etc/sysctl.d/99-custom.conf.backup"
 
-    log_message "Started kernel hardening"
+    if [[ ! -f /etc/sysctl.d/99-custom.conf.backup ]]; then
+        cp /etc/sysctl.d/99-custom.conf /etc/sysctl.d/99-custom.conf.backup
+        log_message "Created kernel config backup: /etc/sysctl.d/99-custom.conf.backup"
+    else
+	if confirm_action "Overwrite kernel backup" "This will overwrite your existing backup" ]]; then
+	    cp /etc/sysctl.d/99-custom.conf /etc/sysctl.d/99-custom.conf.backup
+	    log_message "Overwrited kernel config backup: /etc/sysctl.d/99-custom.conf.backup"
+	fi
+    fi
+
     cat > /etc/sysctl.d/99-custom.conf << EOF
 dev.tty.ldisc_autoload = 0
 fs.protected_fifos = 2
@@ -370,8 +398,15 @@ fail2ban_hardening() {
         log_message "jail.local already exists, skipping copy"
     fi
 
-    cp /etc/fail2ban/jail.local /etc/fail2ban/jail.local.backup
-    log_message "Created fail2ban config backup: /etc/fail2ban.jail.local.backup"
+    if [[ ! -f /etc/fail2ban/jail.local.backup ]]; then
+	cp /etc/fail2ban/jail.local /etc/fail2ban/jail.local.backup
+        log_message "Created fail2ban config backup: /etc/fail2ban/jail.local.backup"
+    else
+	if confirm_action "Overwrite fail2ban backup" "This will overwrite your existing backup"; then
+	    cp /etc/fail2ban/jail.local /etc/fail2ban/jail.local.backup
+            log_message "Overwrited fail2ban config backup: /etc/fail2ban.jail.local.backup"
+	fi
+    fi
 
     cat > /etc/fail2ban/jail.local << EOF
 [DEFAULT]
@@ -392,7 +427,7 @@ EOF
     systemctl enable fail2ban
     log_message "Enabled fail2ban service"
     systemctl restart fail2ban
-    log_message "Started fail2ban service"
+    log_message "Restarted fail2ban service"
     echo -e "${GREEN}${NC}Fail2ban service started"
     log_message "Fail2ban hardening completed successfully"
     echo -e "${GREEN}${BOLD}Fail2ban hardening completed successfully!${NC}"
@@ -454,6 +489,7 @@ backups_rollback() {
         echo -e "${WHITE}2.${NC} Rollback nftables config"
         echo -e "${WHITE}3.${NC} Rollback GRUB config"
         echo -e "${WHITE}4.${NC} Rollback kernel config"
+	echo -e "${WHITE}5.${NC} Rollback fail2ban config"
         echo -e "${WHITE}0.${NC} Back to main menu"
         echo ""
         read -p "$(echo -e ${GREEN}Option:${NC} ) " rollOpt
@@ -491,7 +527,7 @@ backups_rollback() {
                 log_message "Restored nftables config from backup"
                 systemctl restart nftables
                 log_message "Restarted nftables service"
-                echo -e "${GREEN}nftables config restored${NC}"
+                echo -e "${GREEN}Nftables config restored${NC}"
                 ;;
             3)
                 if [[ ! -f /etc/grub.d/40_custom.backup ]]; then
@@ -505,6 +541,7 @@ backups_rollback() {
                 fi
 
                 cp /etc/grub.d/40_custom.backup /etc/grub.d/40_custom
+		chmod +x /etc/grub.d/40_custom
                 log_message "Restored GRUB config from backup"
                 update-grub
                 log_message "Updated GRUB configuration"
@@ -527,6 +564,23 @@ backups_rollback() {
                 log_message "Applied kernel hardening parameters"
                 echo -e "${GREEN}Kernel config restored${NC}"
                 ;;
+	    5)
+		if [[ ! -f /etc/fail2ban/jail.local.backup ]]; then
+		    echo -e "${RED}No fail2ban config backup found${NC}"
+		    read -p "Press enter to continue.."
+		    continue
+		fi
+
+		if ! confirm_action "Rollback fail2ban config" "This will restore fail2ban config to previous version"; then
+		    continue
+		fi
+
+		cp /etc/fail2ban/jail.local.backup /etc/fail2ban/jail.local
+		log_message "Restored fail2ban config from backup"
+		systemctl restart fail2ban
+    		log_message "Restarted fail2ban service"
+    		echo -e "${GREEN}${NC}Fail2ban config restored"
+		;;
             0)
                 return 0
                 ;;
@@ -598,16 +652,6 @@ main() {
     echo ""
     read -p "Press enter to continue.."
 
-    # Load configuration
-    if [[ -f "$CONF_FILE" ]]; then
-        source "$CONF_FILE"
-        log_message "Taken variables from configuration file"
-    else
-        log_message "ERROR: Configuration file not found"
-        echo -e "${RED}${BOLD}ERROR: Configuration file not found at: $CONF_FILE${NC}" >&2
-        exit 1
-    fi
-
     while true; do
         show_menu
         case $option in
@@ -622,7 +666,7 @@ main() {
             9) backups_rollback ;;
             10) system_audit ;;
             0)
-                log_message "=== Hardening Script Exited ==="
+                log_message "======= Hardening Script Exited ======="
                 echo ""
                 echo -e "${CYAN}${BOLD}╔═══════════════════════════════════════════════════════════╗${NC}"
                 echo -e "${CYAN}${BOLD}║${NC} ${GREEN}${BOLD}Script completed successfully!${NC}"
